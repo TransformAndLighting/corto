@@ -37,7 +37,6 @@ SET(EXE_HEADERS
 	${CORTO_SOURCE_PATH}/objload.h)
 
 ADD_LIBRARY(cortolib STATIC ${LIB_SOURCES} ${LIB_HEADERS})
-ADD_EXECUTABLE(cortoexe ${EXE_SOURCE} ${EXE_HEADERS})
 
 SET(CORTO_DEFINITIONS "") 
 
@@ -57,24 +56,16 @@ elseif(APPLE)
 	LIST(APPEND CORTOLIB_CFLAGS -fvisibility=hidden)
 	if(IOS)
 		LIST(APPEND CORTOLIB_CFLAGS -fembed-bitcode)
-		set_xcode_property(corto IPHONEOS_DEPLOYMENT_TARGET "9.2")
-		set_xcode_property(cortoexe IPHONEOS_DEPLOYMENT_TARGET "9.2")
 	endif(IOS)
 endif()
 
 target_include_directories(cortolib PUBLIC ${CORTO_SOURCE_PATH})
-target_include_directories(cortoexe PUBLIC ${CORTO_SOURCE_PATH})
-
-target_link_libraries(cortoexe PUBLIC cortolib)
-
 target_compile_definitions(cortolib PUBLIC ${CORTO_DEFINITIONS})
 target_compile_options    (cortolib PUBLIC ${CORTOLIB_CFLAGS})
-target_compile_options    (cortoexe PUBLIC ${CORTOEXE_CFLAGS})
 set_target_properties     (cortolib PROPERTIES DEBUG_POSTFIX "d")
-set_target_properties     (cortoexe PROPERTIES OUTPUT_NAME "corto")
 set_target_properties     (cortolib PROPERTIES OUTPUT_NAME "corto")
 
-INSTALL(TARGETS cortolib cortoexe
+INSTALL(TARGETS cortolib
 	RUNTIME DESTINATION bin
 	LIBRARY DESTINATION lib
 	ARCHIVE DESTINATION lib)
