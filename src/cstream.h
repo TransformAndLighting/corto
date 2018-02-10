@@ -113,6 +113,7 @@ public:
 		return n;
 	}
 
+	//encode differences of vectors (assuming no correlation between components)
 	template <class T> void encodeValues(uint32_t size, T *values, int N) {
 		BitStream bitstream(size);
 		//Storing bitstream before logs, allows in decompression to allocate only 1 logs array and reuse it.
@@ -140,7 +141,7 @@ public:
 		for(int c = 0; c < N; c++)
 			compress((uint32_t)clogs[c].size(), clogs[c].data());
 	}
-
+	//encode differences of vectors (assuming correlation between components)
 	template <class T> void encodeArray(uint32_t size, T *values, int N) {
 		BitStream bitstream(size);
 		std::vector<uchar> logs(size);
@@ -160,6 +161,45 @@ public:
 				bitstream.write(p[c] + max, diff);
 		}
 
+		write(bitstream);
+		compress(logs.size(), logs.data());
+	}
+	
+	//encode DIFFS
+	template <class T> void encodeDiffs(uint32_t size, T *values) {
+		BitStream bitstream(size);
+		std::vector<uchar> logs(size);
+		for(uint32_t i = 0; i < size; i++) {
+			T val = values[i];
+			if(val == 0) {
+				logs[i] = 0;
+				continue;
+			}
+			int ret = ilog2(abs(val)) + 1;  //0 -> 0, [1,-1] -> 1 [-2,-3,2,3] -> 2
+			logs[i] = (uchar)ret;
+			
+			int middle = (1<<ret)>>1;
+			if(val < 0) val = -val -middle;
+			bitstream.write(val, ret);
+		}
+		write(bitstream);
+		compress(logs.size(), logs.data());
+	}
+	
+	//encode POSITIVE values
+	template <class T> void encodeIndices(uint32_t size, T *values) {
+		BitStream bitstream(size);
+		std::vector<uchar> logs(size);
+		for(uint32_t i = 0; i < size; i++) {
+			T val = values[i] + 1;
+			if(val == 1) {
+				logs[i] = 0;
+				continue;
+			}
+			
+			int ret = logs[i] = ilog2(val);
+			bitstream.write(val -(1<<ret), ret);
+		}
 		write(bitstream);
 		compress(logs.size(), logs.data());
 	}
@@ -192,12 +232,12 @@ public:
 
 	void rewind() { pos = buffer; }
 
-	template<class T> T read() {
+/*	template<class T> T read() {
 		T c;
 		c = *(T *)pos;
 		pos += sizeof(T);
 		return c;
-	}
+	} */
 
 	template<class T> T *readArray(uint32_t s) {
 		T *buffer = (T *)pos;
@@ -205,14 +245,45 @@ public:
 		return buffer;
 	}
 
+	uint8_t readUint8() {
+		return *pos++;
+	}
+
+	uint16_t readUint16() {
+		uint16_t c;
+		c = pos[1];
+		c<<=8;
+		c += pos[0];
+		pos += 2;
+		return c;
+	}
+
+	uint32_t readUint32() {
+		uint32_t c;
+		c = pos[3];
+		c<<=8;
+		c += pos[2];
+		c<<=8;
+		c += pos[1];
+		c<<=8;
+		c += pos[0];
+		pos += 4;
+		return c;
+	}
+
+	float readFloat() {
+		uint32_t c = readUint32();
+		return *(float *)&c;
+	}
+
 	char *readString() {
-		uint16_t bytes = read<uint16_t>();
+		uint16_t bytes = readUint16();
 		return readArray<char>(bytes);
 	}
 
 
 	void read(BitStream &stream) {
-		int s = read<int>();
+		int s = readUint32();
 		//padding to 32 bit is needed for javascript reading (which uses int words.), mem needs to be aligned.
 		int pad = (pos - buffer) & 0x3;
 		if(pad != 0)
@@ -259,7 +330,7 @@ public:
 		std::vector<uchar> logs;
 		decompress(logs);
 
-		if(!values)
+		if(!values) //just skip and return number of readed
 			return (uint32_t)logs.size();
 
 		for(uint32_t i =0; i < logs.size(); i++) {
@@ -286,6 +357,63 @@ public:
 				for(int c = 0; c < N; c++)
 					p[c] = (T)(bitstream.read(diff) - max);
 			}
+		}
+		return (uint32_t)logs.size();
+	}
+	
+	//decode POSITIVE values
+	template <class T> uint32_t decodeIndices(T *values) {
+		BitStream bitstream;
+		read(bitstream);
+
+		std::vector<uchar> logs;
+		decompress(logs);
+		
+		if(!values)
+			return (uint32_t)logs.size();
+		
+		for(uint32_t i =0; i < logs.size(); i++) {
+			T &p = values[i];
+			uchar &ret = logs[i];
+			if(ret == 0) {
+				p = 0;
+				continue;
+			}
+			p = (1<<ret) + (T)bitstream.read(ret) -1;
+		}
+		return (uint32_t)logs.size();
+	}
+	
+	//decode DIFFERENCES
+	template <class T> uint32_t decodeDiffs(T *values) {
+		BitStream bitstream;
+		read(bitstream);
+
+		std::vector<uchar> logs;
+		decompress(logs);
+		
+		if(!values)
+			return (uint32_t)logs.size();
+		
+		for(uint32_t i =0; i < logs.size(); i++) {
+			
+			uchar &diff = logs[i];
+			if(diff == 0) {
+				values[i] = 0;
+				continue;
+			}
+
+/*
+ *  Is this faster (and correct)?
+			int max = (1<<diff)>>1;
+			values[i] = (int)bitstream.read(diff) - ((1<<(diff)>>1);
+*/
+					
+			int val = (int)bitstream.read(diff);
+			int middle = 1<<(diff-1);
+			if(val < middle)
+				val = -val -middle;
+			values[i] = (T)val; 
 		}
 		return (uint32_t)logs.size();
 	}

@@ -43,27 +43,27 @@ Decoder::Decoder(int len, const uchar *input): vertex_count(0) {
 		throw "Memory must be alignegned on 4 bytes.";
 
 	stream.init(len, input);
-	uint32_t magic = stream.read<uint32_t>();
+	uint32_t magic = stream.readUint32();
 	if(magic != 0x787A6300)
 		throw "Not a crt file.";
-	uint32_t version = stream.read<uint32_t>();
-	stream.entropy = (Stream::Entropy)stream.read<uchar>();
+	uint32_t version = stream.readUint32();
+	stream.entropy = (Stream::Entropy)stream.readUint8();
 
-	uint32_t size = stream.read<uint32_t>();
+	uint32_t size = stream.readUint32();
 	for(uint32_t i = 0; i < size; i++) {
 		const char *key = stream.readString();
 		exif[key] = stream.readString();
 	}
 
-	int nattr = stream.read<int>();
+	int nattr = stream.readUint32();
 
 	for(int i = 0; i < nattr; i++) {
 		std::string name =  stream.readString();
-		int codec = stream.read<int>();
-		float q = stream.read<float>();
-		uint32_t components = stream.read<uchar>();
-		uint32_t format = stream.read<uchar>();
-		uint32_t strategy = stream.read<uchar>();
+		int codec = stream.readUint32();
+		float q = stream.readFloat();
+		uint32_t components = stream.readUint8();
+		uint32_t format = stream.readUint8();
+		uint32_t strategy = stream.readUint8();
 
 		VertexAttribute *attr = nullptr;
 		switch(codec) {
@@ -80,8 +80,8 @@ Decoder::Decoder(int len, const uchar *input): vertex_count(0) {
 		attr->strategy = strategy;
 		data[name] = attr;
 	}
-	nvert = stream.read<uint32_t>();
-	nface = stream.read<uint32_t>();
+	nvert = stream.readUint32();
+	nface = stream.readUint32();
 }
 
 Decoder::~Decoder() {
@@ -260,7 +260,7 @@ void Decoder::decodeFaces(uint32_t start, uint32_t end, uint32_t &cler) {
 			throw "Decoding topology failed";
 		}
 
-		DEdge2 &e = front[f];
+		const DEdge2 e = front[f];
 		if(e.deleted) continue;
 		//e.deleted = true; //each edge is processed once at most.
 
@@ -270,8 +270,8 @@ void Decoder::decodeFaces(uint32_t start, uint32_t end, uint32_t &cler) {
 		int v0 = e.v0;
 		int v1 = e.v1;
 
-		DEdge2 &previous_edge = front[e.prev];
-		DEdge2 &next_edge = front[e.next];
+		const DEdge2 previous_edge = front[e.prev];
+		const DEdge2 next_edge = front[e.next];
 
 		new_edge = front.size(); //index of the next edge to be added.
 		int opposite = -1;
@@ -285,15 +285,15 @@ void Decoder::decodeFaces(uint32_t start, uint32_t end, uint32_t &cler) {
 				opposite = vertex_count++;
 			}
 
-			previous_edge.next = new_edge;
-			next_edge.prev = new_edge + 1;
+			front[e.prev].next = new_edge;
+			front[e.next].prev = new_edge + 1;
 
 			front.emplace_back(v0, opposite, v1, e.prev, new_edge + 1);
 			faceorder.push_back(front.size());
 			front.emplace_back(opposite, v1, v0, new_edge, e.next);
 
 		} else if(c == LEFT) {
-			previous_edge.deleted = true;
+			front[e.prev].deleted = true;
 			front[previous_edge.prev].next = new_edge;
 			front[e.next].prev = new_edge;
 			opposite = previous_edge.v0;
@@ -301,7 +301,7 @@ void Decoder::decodeFaces(uint32_t start, uint32_t end, uint32_t &cler) {
 			front.emplace_back(opposite, v1, v0, previous_edge.prev, e.next);
 
 		} else if(c == RIGHT) {
-			next_edge.deleted = true;
+			front[e.next].deleted = true;
 			front[next_edge.next].prev = new_edge;
 			front[e.prev].next = new_edge;
 			opposite = next_edge.v1;
@@ -315,8 +315,8 @@ void Decoder::decodeFaces(uint32_t start, uint32_t end, uint32_t &cler) {
 			continue;
 
 		} else if(c == END) {
-			previous_edge.deleted = true;
-			next_edge.deleted = true;
+			front[e.prev].deleted = true;
+			front[e.next].deleted = true;
 			front[previous_edge.prev].next = next_edge.next;
 			front[next_edge.next].prev = previous_edge.prev;
 			opposite = previous_edge.v0;
